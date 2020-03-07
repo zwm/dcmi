@@ -1,0 +1,64 @@
+Magic 271485
+Revision Verdi3_L-2016.06-1
+
+; Window Layout <x> <y> <width> <height> <signalwidth> <valuewidth>
+viewPort 0 28 1920 372 205 65
+
+; File list:
+; openDirFile [-d delimiter] [-s time_offset] [-rf auto_bus_rule_file] path_name file_name
+openDirFile -d / "" "/home/xiaotu/github/dcmi/sim/tb_top.fsdb"
+
+; file time scale:
+; fileTimeScale ### s|ms|us|ns|ps
+
+; signal spacing:
+signalSpacing 5
+
+; windowTimeUnit is used for zoom, cursor & marker
+; waveform viewport range
+zoom 0.000000 106212636.260000
+cursor 0.000000
+marker 0.000000
+
+; user define markers
+; userMarker time_pos marker_name color linestyle
+; visible top row signal index
+top 0
+; marker line index
+markerPos 9
+
+; event list
+; addEvent event_name event_expression
+; curEvent event_name
+
+
+
+COMPLEX_EVENT_BEGIN
+
+
+COMPLEX_EVENT_END
+
+
+
+; toolbar current search type
+; curSTATUS search_type
+curSTATUS ByChange
+
+
+addGroup "G1"
+activeDirFile "" "/home/xiaotu/github/dcmi/sim/tb_top.fsdb"
+addSignal -h 15 /tb_top/u_camera/dcmi_pwdn
+addSignal -h 15 -holdScope dcmi_mclk
+addSignal -h 15 -holdScope dcmi_pclk
+addSignal -h 15 -holdScope dcmi_vsync
+addSignal -h 15 -holdScope dcmi_hsync
+addSignal -h 15 -UNSIGNED -HEX -holdScope dcmi_data[13:0]
+addSignal -h 15 -holdScope ftrig
+addGroup "G2"
+addSignal -h 15 /tb_top/u_dcmi/pclk
+addSignal -h 15 -UNSIGNED -HEX -holdScope curr_st[3:0]
+addGroup "G3"
+
+; getSignalForm Scope Hierarchy Status
+; active file of getSignalForm
+

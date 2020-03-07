@@ -15,6 +15,7 @@ module camera_dcmi (
 //---------------------------------------------------------------------------
 `define CAMERA_CFG_FILE         "camera_cfg.txt"
 `define CAMERA_DATA_FILE        "camera_data.txt"
+`define DCMI_CAPTURE_EN         tb_top.u_dcmi.capture_en
 
 //---------------------------------------------------------------------------
 //  Var
@@ -26,7 +27,7 @@ reg                         embd_sync_en;
 reg                         pclk_polarity;
 reg                         hsync_polarity;
 reg                         vsync_polarity;
-reg                         data_bus_width;         // 00: 8-bit, 01: 10-bit, 10: 12-bit, 11: 14-bit
+reg         [1:0]           data_bus_width;         // 00: 8-bit, 01: 10-bit, 10: 12-bit, 11: 14-bit
 reg         [7:0]           fec;
 reg         [7:0]           lec;
 reg         [7:0]           lsc;
@@ -38,14 +39,14 @@ reg         [7:0]           fsu;
 reg         [13:0]          line_size;
 reg         [13:0]          pixel_size;
 // signal
-reg ftrig; reg [1:0] ftrig_dly; // frame trigger
+reg [1:0] dcmi_capture_en_dly; wire ftrig; reg [1:0] ftrig_dly; // frame trigger
 reg ext_vsync, ext_hsync; reg jpeg_vsync, jpeg_hsync; reg embd_vsync, embd_hsync;
 reg [13:0] ext_data, jpeg_data, embd_data;
 reg [31:0] ext_line_cnt, ext_pixel_cnt, ext_tmp_cnt;
 reg [31:0] jpeg_line_cnt, jpeg_pixel_cnt, jpeg_tmp_cnt;
 reg [31:0] embd_line_cnt, embd_pixel_cnt, embd_tmp_cnt;
 reg [3:0] ext_st, jpeg_st, embd_st;
-integer fp; reg [31:0] task_cnt; reg sim_end;
+integer fp, fpd, i, j, k, tmp; reg [31:0] task_cnt; reg sim_end;
 //---------------------------------------------------------------------------
 //  System Ctrl
 //---------------------------------------------------------------------------
@@ -58,11 +59,11 @@ wire dcmi_en = ~dcmi_pwdn;
 reg pclk_raw;
 initial begin
     pclk_raw = 0;
-    forever #DCMI_PCLK_PERIOD/2 pclk_raw = ~pclk_raw;
+    forever #((`DCMI_PCLK_PERIOD)/2) pclk_raw = ~pclk_raw;
 end
 wire pclk = (~dcmi_pclk) ^ pclk_polarity;
 wire clk = pclk;
-wire rstn = dcmi_pwdn;
+wire rstn = ~dcmi_pwdn;
 //---------------------------------------------------------------------------
 //  Main
 //---------------------------------------------------------------------------
@@ -73,7 +74,7 @@ initial begin
     // main loop
     begin: LP_MAIN
         while(1) begin
-            @(posedge pclk) begin
+            @(posedge pclk_raw) begin
                 if (sim_end) begin
                     $fclose(fp);
                     $display("%t, CAMERA DCMI CFG FILE READ END!", $time);
@@ -81,7 +82,7 @@ initial begin
                 end
                 else begin
                     if (ftrig) begin
-                        read_cfg;
+                        read_cfg(fp);
                         fpd = $fopen(`CAMERA_DATA_FILE, "r");
                     end
                 end
@@ -89,8 +90,15 @@ initial begin
         end
     end
 end
+// dcmi_capture_en_dly
+always @(posedge pclk_raw or negedge rstn)
+    if (~rstn)
+        dcmi_capture_en_dly <= 2'b00;
+    else
+        dcmi_capture_en_dly <= {dcmi_capture_en_dly[0], `DCMI_CAPTURE_EN};
+assign ftrig = ~dcmi_capture_en_dly[1] & dcmi_capture_en_dly[0];
 // ftrig_dly
-always @(posedge clk or negedge rstn)
+always @(posedge pclk_raw or negedge rstn)
     if (~rstn)
         ftrig_dly <= 2'b00;
     else
@@ -117,8 +125,9 @@ wire ext_start  = ftrig_dly[1] & ~jpeg_en & ~embd_sync_en;
 localparam EXT_IDLE             = 0;
 localparam EXT_FS               = 1;
 localparam EXT_LS               = 2;
-localparam EXT_LE               = 3;
-localparam EXT_FE               = 4;
+localparam EXT_LINE             = 3;
+localparam EXT_LE               = 4;
+localparam EXT_FE               = 5;
 always @(posedge clk or negedge rstn)
     if (~rstn) begin
         ext_st <= EXT_IDLE; ext_tmp_cnt <= 0;
@@ -128,7 +137,7 @@ always @(posedge clk or negedge rstn)
     else begin
         case (ext_st)
             EXT_IDLE: begin
-                if (exit_start) begin
+                if (ext_start) begin
                     ext_st <= EXT_FS; ext_tmp_cnt <= 0;
                     ext_line_cnt <= 0; ext_pixel_cnt <= 0; ext_data <= 0;
                     ext_vsync <= 0; ext_hsync <= 0;
@@ -158,13 +167,13 @@ always @(posedge clk or negedge rstn)
             EXT_LINE: begin
                 // cnt
                 if (ext_pixel_cnt == pixel_size - 1) begin
-                    ext_st <= EXT_LE;
+                    ext_st <= EXT_LE; ext_tmp_cnt <= 0;
                 end
                 else begin
                     ext_pixel_cnt <= ext_pixel_cnt + 1;
                 end
                 // data
-                $fscanf(fpd, "%h", ext_tmp_cnt);
+                tmp = $fscanf(fpd, "%h", ext_tmp_cnt);
                 ext_data <= ext_tmp_cnt[13:0];
             end
             EXT_LE: begin
@@ -224,7 +233,7 @@ task camera_init;
     begin
         sim_end = 0;
         task_cnt = 0;
-        fp = fopen(`CAMERA_CFG_FILE, "r");
+        fp = $fopen(`CAMERA_CFG_FILE, "r");
     end
 endtask
 // read_cfg
@@ -245,7 +254,6 @@ task read_cfg;
         // read log
         if (sim_end == 0) begin
             // command
-            ret = $fgets (s, fp); // command label
             ret = $fscanf(fp, "%s %d", s, snapshot_mode); ret = $fgets(s, fp);
             ret = $fscanf(fp, "%s %d", s, jpeg_en); ret = $fgets(s, fp);
             ret = $fscanf(fp, "%s %d", s, embd_sync_en); ret = $fgets(s, fp);

@@ -1,9 +1,9 @@
-`timescale 1ns/1ps
 
 module tb_top();
 // macro
 `include "tb_define.v"
 // reg
+reg rstn;
 reg block_en;
 reg capture_en;
 reg snapshot_mode;
@@ -13,7 +13,7 @@ reg embd_sync_en;
 reg pclk_polarity;
 reg hsync_polarity;
 reg vsync_polarity;
-reg data_bus_width;         // 00: 8-bit, 01: 10-bit, 10: 12-bit, 11: 14-bit
+reg [1:0] data_bus_width;         // 00: 8-bit, 01: 10-bit, 10: 12-bit, 11: 14-bit
 reg [1:0] frame_sel_mode;      // 00: all, 01: 1/2, 10: 1/4, 11: reserved
 reg [1:0] byte_sel_mode;       // 00: all, 01: 1/2, 10: 1/4, 11: 2/4
 reg line_sel_mode;       // 0: all, 1: 1/2
@@ -26,7 +26,7 @@ reg [13:0] pixel_crop_start;
 reg [13:0] line_crop_size;
 reg [13:0] pixel_crop_size;
 // dcmi
-wire dcmi_pclk, dcmi_vsync, dcmi_hsync; wire [13:0] dcmi_data; reg dcmi_pwdn;
+reg dcmi_mclk; wire dcmi_pclk, dcmi_vsync, dcmi_hsync; wire [13:0] dcmi_data; reg dcmi_pwdn;
 // output
 wire line_irq_pulse, frame_start_irq_pulse, err_irq_pulse, frame_end_irq_pulse;
 wire dout_vld; wire [31:0] dout;
@@ -35,6 +35,7 @@ wire dout_vld; wire [31:0] dout;
 initial begin
     sys_init;
     #50_000;
+    rstn = 1;
     dcmi_pwon;
     reg_init;
     repeat (10) @(posedge dcmi_pclk);
@@ -48,6 +49,7 @@ initial begin
 end
 // inst dcmi
 dcmi_ctrl u_dcmi (
+    .rstn(rstn),
     .dcmi_pclk(dcmi_pclk),
     .dcmi_vsync(dcmi_vsync),
     .dcmi_hsync(dcmi_hsync),
@@ -105,6 +107,7 @@ end
 
 task sys_init;
     begin
+        rstn = 0;
         block_en = 0;
         capture_en = 0;
         snapshot_mode = 0;
@@ -141,7 +144,7 @@ task reg_init;
         block_en = 0;
         capture_en = 0;
         snapshot_mode = 1;
-        crop_en = 0;
+        crop_en = 1;
         jpeg_en = 0;
         embd_sync_en = 0;
         pclk_polarity = 0;
@@ -161,10 +164,10 @@ task reg_init;
         feu = 0;
         lsu = 0;
         leu = 0;
-        line_crop_start = 0;
-        pixel_crop_start = 0;
-        line_crop_size = 0;
-        pixel_crop_size = 0;
+        line_crop_start = 1;
+        pixel_crop_start = 1;
+        line_crop_size = 10;
+        pixel_crop_size = 20;
     end
 endtask
 
@@ -189,3 +192,10 @@ task dcmi_pwon;
         dcmi_pwdn = 0;
     end
 endtask
+
+initial begin
+    dcmi_mclk = 0;
+    forever #(100/2) dcmi_mclk = ~dcmi_mclk;
+end
+
+endmodule

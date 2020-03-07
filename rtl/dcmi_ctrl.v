@@ -2,6 +2,7 @@
 // 20200229, file created
 
 module dcmi_ctrl (
+    input                       rstn,
     //-----------------------------------------------------------------------
     //  DCMI Interface
     //-----------------------------------------------------------------------
@@ -9,7 +10,7 @@ module dcmi_ctrl (
     input                       dcmi_pclk,
     input                       dcmi_vsync,
     input                       dcmi_hsync,
-    input [13:0]                dcmi_din,   // support 8/10/12/14 bit
+    input [13:0]                dcmi_data,   // support 8/10/12/14 bit
     //-----------------------------------------------------------------------
     //  Registers
     //-----------------------------------------------------------------------
@@ -23,7 +24,7 @@ module dcmi_ctrl (
     input                       pclk_polarity,
     input                       hsync_polarity,
     input                       vsync_polarity,
-    input                       data_bus_width,         // 00: 8-bit, 01: 10-bit, 10: 12-bit, 11: 14-bit
+    input       [1:0]           data_bus_width,         // 00: 8-bit, 01: 10-bit, 10: 12-bit, 11: 14-bit
     input       [1:0]           frame_sel_mode,      // 00: all, 01: 1/2, 10: 1/4, 11: reserved
     input       [1:0]           byte_sel_mode,       // 00: all, 01: 1/2, 10: 1/4, 11: 2/4
     input                       line_sel_mode,       // 0: all, 1: 1/2
@@ -74,7 +75,7 @@ localparam                      ESC_BYTE3               = 2'd3;
 // fsm
 reg [3:0] curr_st, next_st;
 reg [1:0] esc_cnt; 
-reg esc_vld, esc_err;
+wire esc_vld; reg esc_err;
 // crop
 reg [13:0] line_cnt; reg line_active;
 reg [13:0] pixel_cnt; reg pixel_active;
@@ -110,16 +111,16 @@ always @(posedge pclk or negedge rstn)
     end
     else if (curr_st != IDLE) begin
         // 8-bit
-        dcmi_din_d1[7:0] <= dcmi_din[7:0];
+        dcmi_din_d1[7:0] <= dcmi_data[7:0];
         // 10/12/14 bit
-        if (data_bus_width[1] || data_bus_width[0]) dcmi_din_d1[9:8] <= dcmi_din[9:8];
+        if (data_bus_width[1] || data_bus_width[0]) dcmi_din_d1[9:8] <= dcmi_data[9:8];
         // 12/14 bit
-        if (data_bus_width[1]) dcmi_din_d1[11:10] <= dcmi_din[11:10];
+        if (data_bus_width[1]) dcmi_din_d1[11:10] <= dcmi_data[11:10];
         // 14 bit
-        if (data_bus_width[1] && data_bus_width[0]) dcmi_din_d1[13:12] <= dcmi_din[13:12];
+        if (data_bus_width[1] && data_bus_width[0]) dcmi_din_d1[13:12] <= dcmi_data[13:12];
     end
 wire [13:0] din_d1 = dcmi_din_d1;
-wire [7:0] din_8b = dcmi_din[7:0];
+wire [7:0] din_8b = dcmi_data[7:0];
 wire [7:0] din_d1_8b = din_d1[7:0];
 //---------------------------------------------------------------------------
 // Jpeg Synchronization
@@ -178,7 +179,7 @@ always @(posedge pclk or negedge rstn)
 // External Synchronization
 //---------------------------------------------------------------------------
 wire vsync_start = vsync_d1 & (~vsync); // falling edge
-wire vsync_end = (~vsync_d1) & vsync); // rising edge
+wire vsync_end = (~vsync_d1) & vsync; // rising edge
 wire hsync_start = hsync_d1 & (~hsync);
 wire hsync_end = (~hsync_d1) & hsync;
 //---------------------------------------------------------------------------
@@ -192,8 +193,8 @@ always @(posedge pclk or negedge rstn)
         curr_st <= IDLE;
     else
         curr_st <= next_st;
-wire pixel_crop_end = crop_en & pixel_active & (pixel_cnt == pixel_crop_size);
-wire line_crop_end = crop_en & line_active & (line_cnt == line_crop_size);
+wire pixel_crop_end = crop_en & pixel_active & (pixel_cnt == pixel_crop_size - 1);
+wire line_crop_end = crop_en & line_active & (line_cnt == line_crop_size - 1);
 // comb
 always @(*) begin
     // default
@@ -227,6 +228,7 @@ always @(*) begin
                 if (vsync_start)
                     next_st = WAIT_LINE_START;
             end
+        end
         // wait for line start
         WAIT_LINE_START: begin
             if (embd_sync_en) begin // embedded sync
@@ -358,7 +360,7 @@ wire frame_sel = frame_cnt == 2'b00;
 // line_cnt
 wire line_cnt_init = (curr_st == WAIT_FRAME_START && next_st != WAIT_FRAME_START); // init when frame start
 wire line_cnt_inc = (curr_st == LINE_RECV && next_st != LINE_RECV); // inc when finish receiving one line
-always @(posedge pclk or negedge rstn) begin
+always @(posedge pclk or negedge rstn)
     if (~rstn)
         line_cnt <= 0;
     else if (~block_en)
@@ -372,7 +374,7 @@ always @(posedge pclk or negedge rstn) begin
             line_cnt <= line_cnt + 1;
     end
 // line_active
-always @(posedge pclk or negedge rstn) begin
+always @(posedge pclk or negedge rstn)
     if (~rstn)
         line_active <= 0;
     else if (~block_en)
@@ -383,7 +385,7 @@ always @(posedge pclk or negedge rstn) begin
         else
             line_active <= 1;
     end
-    else if (line_cnt_inc & ~line_anctive) begin
+    else if (line_cnt_inc & ~line_active) begin
         if (line_cnt == line_crop_start - 1)
             line_active <= 1;
     end
@@ -391,7 +393,7 @@ wire line_sel = line_active & (line_sel_mode ? ((~line_cnt[0]) ^ line_sel_start)
 // pixel_cnt
 wire pixel_cnt_init = line_active & (curr_st != LINE_RECV && next_st == LINE_RECV); // enter LINE_RECV
 wire pixel_cnt_inc = line_active & (curr_st == LINE_RECV);
-always @(posedge pclk or negedge rstn) begin
+always @(posedge pclk or negedge rstn)
     if (~rstn)
         pixel_cnt <= 0;
     else if (~block_en)
@@ -405,7 +407,7 @@ always @(posedge pclk or negedge rstn) begin
             pixel_cnt <= pixel_cnt + 1;
     end
 // pixel_active
-always @(posedge pclk or negedge rstn) begin
+always @(posedge pclk or negedge rstn)
     if (~rstn)
         pixel_active <= 0;
     else if (pixel_cnt_init) begin
@@ -431,7 +433,7 @@ reg ls_irq, fs_irq, fe_irq, err_irq;
 // ls
 wire ls_irq_clr = ~block_en | ls_irq ;
 wire ls_irq_set = ~ls_irq & (curr_st != LINE_RECV && next_st == LINE_RECV);
-always @(posedge pclk or negedge rstn) begin
+always @(posedge pclk or negedge rstn)
     if (~rstn)
         ls_irq <= 0;
     else if (ls_irq_clr)
@@ -441,7 +443,7 @@ always @(posedge pclk or negedge rstn) begin
 // fs
 wire fs_irq_clr = ~block_en | fs_irq;
 wire fs_irq_set = ~fs_irq & (curr_st == WAIT_FRAME_START && next_st != WAIT_FRAME_START);
-always @(posedge pclk or negedge rstn) begin
+always @(posedge pclk or negedge rstn)
     if (~rstn)
         fs_irq <= 0;
     else if (fs_irq_clr)
@@ -451,7 +453,7 @@ always @(posedge pclk or negedge rstn) begin
 // fe
 wire fe_irq_clr = ~block_en | fe_irq;
 wire fe_irq_set = ~fe_irq & (curr_st == FRAME_END);
-always @(posedge pclk or negedge rstn) begin
+always @(posedge pclk or negedge rstn)
     if (~rstn)
         fe_irq <= 0;
     else if (fe_irq_clr)
@@ -461,7 +463,7 @@ always @(posedge pclk or negedge rstn) begin
 // err
 wire err_irq_clr = ~block_en | err_irq;
 wire err_irq_set = ~err_irq & (esc_err | esc_b1_err | esc_b2_err);
-always @(posedge pclk or negedge rstn) begin
+always @(posedge pclk or negedge rstn)
     if (~rstn)
         err_irq <= 0;
     else if (err_irq_clr)
@@ -476,19 +478,20 @@ assign err_irq_pulse            = err_irq;
 // 32-bit word assemble
 reg [31:0] pixel_word; reg pixel_word_vld;
 reg [1:0] pixel_inner_word_cnt;
-wire [1:0] pixel_inner_word_max = (data_bus_width == 2'b00) : 2'b11 : 2'b01;
+wire [1:0] pixel_inner_word_max = (data_bus_width == 2'b00) ? 2'b11 : 2'b01;
 wire [1:0] pixel_inner_word_next = (pixel_inner_word_cnt == pixel_inner_word_max) ? 2'b00 : pixel_inner_word_cnt + 2'b01;
 wire piwc_clr = (~block_en) | (curr_st == WAIT_FRAME_START && next_st != WAIT_FRAME_START);     // clear at frame start
-wire piwc_inc = jpeg_en ? (curr_st == LINE_RECV && hsync == 1'b0) :                             // jpeg using hsync to indicate valid data
-                          (curr_st == LINE_RECV && frame_sel & line_sel & pixel_sel);           // others mode
-always @(posedge pclk or negedge rstn) begin
+wire piwc_inc = jpeg_en ?      (curr_st == LINE_RECV && hsync == 1'b0) :                            // jpeg using hsync to indicate valid data
+                embd_sync_en ? (curr_st == LINE_RECV && frame_sel & line_sel & pixel_sel) :         // embedded sync mode
+                               (curr_st == LINE_RECV && frame_sel & line_sel & pixel_sel & ~hsync); // external sync mode
+always @(posedge pclk or negedge rstn)
     if (~rstn)
         pixel_inner_word_cnt <= 0;
     else if (piwc_clr)
         pixel_inner_word_cnt <= 0;
-    else if (piwc_inc) begin
+    else if (piwc_inc)
         pixel_inner_word_cnt <= pixel_inner_word_next;
-always @(posedge pclk or negedge rstn) begin
+always @(posedge pclk or negedge rstn)
     if (~rstn)
         pixel_word <= 0;
     else if (piwc_clr)
@@ -508,7 +511,8 @@ always @(posedge pclk or negedge rstn) begin
             else
                 pixel_word[15:0] <= {2'b00, din_d1[13:0]};
         end
-always @(posedge pclk or negedge rstn) begin
+    end
+always @(posedge pclk or negedge rstn)
     if (~rstn)
         pixel_word_vld <= 0;
     else if (piwc_clr)
