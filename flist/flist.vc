@@ -1,0 +1,3 @@
+../rtl/dcmi_ctrl.v
+../tb/camera_dcmi.v
+../tb/tb_top.v

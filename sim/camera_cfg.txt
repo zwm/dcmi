@@ -1,0 +1,19 @@
+// TASK0, External Sync
+snapshot_mode       1
+jpeg_en             0
+embd_sync_en        0
+pclk_polarity       0
+hsync_polarity      0
+vsync_polarity      0
+data_bus_width      0
+fsc 0
+fec 0
+lsc 0
+lec 0
+fsu 0
+feu 0
+lsu 0
+leu 0
+line_size 20
+pixel_size 40
+
