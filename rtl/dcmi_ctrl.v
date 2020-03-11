@@ -41,7 +41,7 @@ module dcmi_ctrl (
     input       [7:0]           lsu,
     input       [7:0]           fsu,
     // DCMI_CWSTRT
-    input       [12:0]          line_crop_start,
+    input       [13:0]          line_crop_start,
     input       [13:0]          pixel_crop_start,
     // DCMI_CWSIZE
     input       [13:0]          line_crop_size,
