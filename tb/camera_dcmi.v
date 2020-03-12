@@ -15,7 +15,7 @@ module camera_dcmi (
 //---------------------------------------------------------------------------
 `define CAMERA_CFG_FILE         "camera_cfg.txt"
 `define CAMERA_DATA_FILE        "camera_data.txt"
-`define DCMI_CAPTURE_EN         tb_top.u_dcmi.capture_en
+`define DCMI_CAPTURE_EN         tb_top.u_dcmi_top.capture_en
 
 //---------------------------------------------------------------------------
 //  Var

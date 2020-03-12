@@ -3,11 +3,12 @@
 
 module dcmi_ctrl (
     input                       rstn,
+    input                       pclk,
     //-----------------------------------------------------------------------
     //  DCMI Interface
     //-----------------------------------------------------------------------
     // dcmi port
-    input                       dcmi_pclk,
+//    input                       dcmi_pclk,
     input                       dcmi_vsync,
     input                       dcmi_hsync,
     input [13:0]                dcmi_data,   // support 8/10/12/14 bit
@@ -21,7 +22,7 @@ module dcmi_ctrl (
     input                       crop_en,
     input                       jpeg_en,
     input                       embd_sync_en,
-    input                       pclk_polarity,
+//    input                       pclk_polarity,
     input                       hsync_polarity,
     input                       vsync_polarity,
     input       [1:0]           data_bus_width,         // 00: 8-bit, 01: 10-bit, 10: 12-bit, 11: 14-bit
@@ -55,8 +56,8 @@ module dcmi_ctrl (
     output                      err_irq_pulse,
     output                      frame_end_irq_pulse,
     // dout
-    output                      dout_vld,
-    output      [31:0]          dout
+    output reg                  dout_vld,
+    output reg  [31:0]          dout
 );
 
 // macros fsm
@@ -85,7 +86,7 @@ reg [13:0] pixel_cnt; reg pixel_active;
 // polarity
 wire vsync = dcmi_vsync ^ vsync_polarity;
 wire hsync = dcmi_hsync ^ hsync_polarity;
-wire pclk = dcmi_pclk ^ pclk_polarity;
+//wire pclk = dcmi_pclk ^ pclk_polarity;
 reg vsync_d1, hsync_d1;
 always @(posedge pclk or negedge rstn)
     if (~rstn) begin
@@ -528,8 +529,18 @@ always @(posedge pclk or negedge rstn)
     else
         pixel_word_vld <= 0;
 // dout
-assign dout_vld = pixel_word_vld;
-assign dout = pixel_word;
+always @(posedge pclk or negedge rstn)
+    if (~rstn) begin
+        dout_vld <= 0;
+        dout <= 0;
+    end
+    else if (block_en & pixel_word_vld) begin
+        dout_vld <= 1;
+        dout <= pixel_word;
+    end
+    else begin
+        dout_vld <= 0;
+    end
 
 endmodule
 

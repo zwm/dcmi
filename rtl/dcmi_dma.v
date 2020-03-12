@@ -5,14 +5,17 @@ module dcmi_dma (
     // ahb
     input                               rstn,
     input                               clk,
+    input                               block_en,
     // from dcmi ctrl
-    input                               dcmi_start,
-    input                               dcmi_vld,
-    input       [31:0]                  dcmi_data,
+    input                               man_mode,
+    input                               mcu_rd_dr,
+    input                               capture_start,
+    input                               dcmi_dw_vld,
+    input       [31:0]                  dcmi_dw_out,
     // registers
     input       [`DMA_ADDR_LEN-1:0]     dma_saddr,
     input       [`DMA_ADDR_LEN-1:0]     dma_len,
-    output reg                          ovfl_err,
+    output                              ovfl_irq_pulse,
     output                              ppbuf_empty,
     output                              ppbuf_valid,
     // ram port
@@ -31,7 +34,7 @@ always @(posedge clk or negedge rstn)
         ram_waddr <= 0;
     else if (~block_en)
         ram_waddr <= 0;
-    else if (dcmi_start)
+    else if (capture_start)
         ram_waddr <= dma_saddr;
     else if (ram_wr_req == 1 && ram_wr_ack == 1) begin
         if (ram_waddr == (dma_saddr + dma_len - 1))
@@ -40,23 +43,15 @@ always @(posedge clk or negedge rstn)
             ram_waddr <= ram_waddr + 1;
     end
 // ppbuf write
-assign ppbuf_wr_req = dcmi_vld;
-assign ppbuf_wr_data = dcmi_data;
-assign ppbuf_wr_err = dcmi_vld & ~ppbuf_wr_rdy; // overflow
+assign ppbuf_wr_req = dcmi_dw_vld;
+assign ppbuf_wr_data = dcmi_dw_out;
+assign ppbuf_wr_err = dcmi_dw_vld & ~ppbuf_wr_rdy; // overflow
 // ppbuf read
-assign ram_wr_req = ppbuf_rd_rdy;
+assign ram_wr_req = man_mode ? 1'b0 : ppbuf_rd_rdy;
 assign ram_wdata = ppbuf_rd_data;
-assign ppbuf_rd_req = ram_wr_req & ram_wr_ack; // when write finish, switch buffer
-// ovfl_err
-always @(posedge clk or negedge rstn)
-    if (~rstn)
-        ovfl_err <= 0;
-    else if (~block_en)
-        ovfl_err <= 0;
-    else if (dcmi_start)
-        ovfl_err <= 0;
-    else if (ppbuf_wr_err) begin
-        ovfl_err <= 1;
+assign ppbuf_rd_req = man_mode ? mcu_rd_dr : ram_wr_req & ram_wr_ack; // when write finish, switch buffer
+// flags
+assign ovfl_irq_pulse = ppbuf_wr_err;
 assign ppbuf_empty = ppbuf_wr_rdy;
 assign ppbuf_valid = ppbuf_rd_rdy;
 // inst ppbuf

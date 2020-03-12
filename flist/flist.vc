@@ -1,3 +1,11 @@
+../rtl/dcmi_define.v
 ../rtl/dcmi_ctrl.v
+../rtl/dcmi_dma.v
+../rtl/dcmi_irq.v
+../rtl/dcmi_pingpang.v
+../rtl/dcmi_reg.v
+../rtl/dcmi_psync.v
+../rtl/dcmi_sync.v
 ../tb/camera_dcmi.v
+../rtl/dcmi_top.v
 ../tb/tb_top.v

@@ -30,7 +30,7 @@ always @(posedge clk or negedge rstn)
         wptr <= 0;
     else if (wr_vld == 1)
         wptr <= ~wptr;
-// wdata
+// wr_data
 always @(posedge clk or negedge rstn)
     if (~rstn) begin
         d0 <= 0;
@@ -44,7 +44,7 @@ always @(posedge clk or negedge rstn)
         if (wptr == 0)
             d0 <= wr_data;
         else
-            d1 <= wdata;
+            d1 <= wr_data;
     end
 //---------------------------------------------------------------------------
 // READ
@@ -66,7 +66,7 @@ always @(posedge clk or negedge rstn)
         d0_busy <= 0;
     else if (wr_vld == 1 && wptr == 0)
         d0_busy <= 1;
-    else if (rd_vld == && rptr == 0)
+    else if (rd_vld == 1 && rptr == 0)
         d0_busy <= 0;
 // d1_busy
 always @(posedge clk or negedge rstn)
@@ -76,7 +76,7 @@ always @(posedge clk or negedge rstn)
         d1_busy <= 0;
     else if (wr_vld == 1 && wptr == 1)
         d1_busy <= 1;
-    else if (rd_vld == && rptr == 1)
+    else if (rd_vld == 1 && rptr == 1)
         d1_busy <= 0;
 //---------------------------------------------------------------------------
 // OUTPUT

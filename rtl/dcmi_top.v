@@ -41,7 +41,10 @@ module dcmi_top (
 //---------------------------------------------------------------------------
 // misc
 wire rstn_dcmi; reg [1:0] rstn_pclk_dly;
-wire dcmi_ctrl_vld; wire [31:0] dcmi_ctrl_dout;
+wire dw_out_vld_dcmi, dw_out_vld_hclk; wire [31:0] dw_out; // data word, if no handshake, data change while sync will not be observed!!!
+wire frame_end_hclk;
+wire [4:0] dcmi_ris, dcmi_ier, dcmi_mis, dcmi_icr;
+wire ppbuf_valid, ppbuf_empty;
 // DCMI_CR
 wire            line_sel_start;      // 0: 1st, 1: 2nd
 wire            line_sel_mode;      // 0: all, 1: 1/2
@@ -56,8 +59,11 @@ wire            pclk_polarity;
 wire            embd_sync_en;
 wire            jpeg_en;
 wire            crop_en;
+wire            man_mode;
+wire            mcu_rd_dr;
 wire            snapshot_mode;
 wire            capture_en;
+wire            capture_start;
 // DCMI_ESCR
 wire [7:0]      fec;
 wire [7:0]      lec;
@@ -75,84 +81,58 @@ wire [13:0]     pixel_crop_start;
 wire [13:0]     line_crop_size;
 wire [13:0]     pixel_crop_size;
 // DCMI_DMA
-wire [17:0]     dma_saddr;   // 18-bit, 256KB
-wire [17:0]     dma_len;    // 18-bit, 256KB
+wire [17:0]     dma_saddr; // 18-bit, 256KB
+wire [17:0]     dma_len; // 18-bit, 256KB
 // irq
 wire line_irq_pulse_dcmi, line_irq_pulse_hclk;
 wire fs_irq_pulse_dcmi, fs_irq_pulse_hclk;
 wire err_irq_pulse_dcmi, err_irq_pulse_hclk;
 wire fe_irq_pulse_dcmi, fe_irq_pulse_hclk;
-
-// capture_en
-
+wire ovfl_irq_pulse_hclk;
+// en
+wire capture_en_hclk, capture_en_dcmi;
+wire block_en_hclk, block_en_dcmi;
 // dcmi_pclk polarity processed here!!! tbd!!!
-
+wire pclk;
+assign pclk = dcmi_pclk ^ pclk_polarity;
 // rstn
-always @(posedge dcmi_pclk or negedge rstn)
+always @(posedge pclk or negedge rstn)
     if (~rstn)
         rstn_pclk_dly <= 0;
     else
         rstn_pclk_dly <= {rstn_pclk_dly[0], 1'b1};
 assign rstn_dcmi = rstn_pclk_dly[1];
-// dcmi_reg
-dcmi_reg u_dcmi_reg (
-    .rstn                   ( rstn                  ),
-    .hclk                   ( hclk                  ),
-    .ahb_bus_sel            ( ahb_bus_sel           ),
-    .ahb_bus_wr             ( ahb_bus_wr            ),
-    .ahb_bus_rd             ( ahb_bus_rd            ),
-    .ahb_bus_addr           ( ahb_bus_addr          ),
-    .ahb_bus_bsel           ( ahb_bus_bsel          ),
-    .ahb_bus_wdata          ( ahb_bus_wdata         ),
-    .ahb_bus_rdata          ( ahb_bus_rdata         ),
-    .block_en               ( block_en              ),
-    .capture_en             ( capture_en            ),
-    .snapshot_mode          ( snapshot_mode         ),
-    .crop_en                ( crop_en               ),
-    .jpeg_en                ( jpeg_en               ),
-    .embd_sync_en           ( embd_sync_en          ),
-    .pclk_polarity          ( pclk_polarity         ),
-    .hsync_polarity         ( hsync_polarity        ),
-    .vsync_polarity         ( vsync_polarity        ),
-    .data_bus_width         ( data_bus_width        ),
-    .frame_sel_mode         ( frame_sel_mode        ),
-    .byte_sel_mode          ( byte_sel_mode         ),
-    .line_sel_mode          ( line_sel_mode         ),
-    .byte_sel_start         ( byte_sel_start        ),
-    .line_sel_start         ( line_sel_start        ),
-    .fec                    ( fec                   ),
-    .lec                    ( lec                   ),
-    .lsc                    ( lsc                   ),
-    .fsc                    ( fsc                   ),
-    .feu                    ( feu                   ),
-    .leu                    ( leu                   ),
-    .lsu                    ( lsu                   ),
-    .fsu                    ( fsu                   ),
-    .line_crop_start        ( line_crop_start       ),
-    .pixel_crop_start       ( pixel_crop_start      ),
-    .line_crop_size         ( line_crop_size        ),
-    .pixel_crop_size        ( pixel_crop_size       ),
-    .dcmi_dma_saddr         ( dcmi_dma_saddr        ),
-    .dcmi_dma_len           ( dcmi_dma_len          ),
-    .line_irq_pulse         ( line_irq_pulse_hclk   ),  // irq
-    .fs_irq_pulse           ( fs_irq_pulse_hclk     ),
-    .err_irq_pulse          ( err_irq_pulse_hclk    ),
-    .fe_irq_pulse           ( fe_irq_pulse_hclk     ),
+// block_en
+assign block_en_hclk = block_en;
+dcmi_sync u_sync_block_en (
+    .rstn                   ( rstn_dcmi             ),
+    .clk                    ( pclk                  ),
+    .din                    ( block_en_hclk         ),
+    .dout                   ( block_en_dcmi         )
 );
+// capture_en
+assign capture_en_hclk = capture_en;
+dcmi_sync u_sync_capture_en (
+    .rstn                   ( rstn_dcmi             ),
+    .clk                    ( pclk                  ),
+    .din                    ( capture_en_hclk       ),
+    .dout                   ( capture_en_dcmi       )
+);
+
 // dcmi_ctrl
 dcmi_ctrl u_dcmi_ctrl (
     .rstn                   ( rstn_dcmi             ), // need sync
-    .dcmi_pclk              ( dcmi_pclk             ),
+    .pclk                   ( pclk                  ),
     .dcmi_vsync             ( dcmi_vsync            ),
     .dcmi_hsync             ( dcmi_hsync            ),
     .dcmi_data              ( dcmi_data             ),
-    .block_en               ( block_en              ), // need sync
-    .capture_en             ( capture_en            ), // need sync
+    .block_en               ( block_en_dcmi         ), // need sync
+    .capture_en             ( capture_en_dcmi       ), // need sync
     .snapshot_mode          ( snapshot_mode         ),
     .crop_en                ( crop_en               ),
     .jpeg_en                ( jpeg_en               ),
     .embd_sync_en           ( embd_sync_en          ),
-    .pclk_polarity          ( pclk_polarity         ),
+//    .pclk_polarity          ( pclk_polarity         ),
     .hsync_polarity         ( hsync_polarity        ),
     .vsync_polarity         ( vsync_polarity        ),
     .data_bus_width         ( data_bus_width        ),
@@ -176,26 +156,84 @@ dcmi_ctrl u_dcmi_ctrl (
     .line_irq_pulse         ( line_irq_pulse_dcmi   ), // irq
     .frame_start_irq_pulse  ( fs_irq_pulse_dcmi     ),
     .err_irq_pulse          ( err_irq_pulse_dcmi    ),
-    .frame_end_irq_pulse    ( fe_irq_pulse          ),
-    .dout_vld               ( dcmi_ctrl_vld         ), // to dma
-    .dout                   ( dcmi_ctrl_dout        )
+    .frame_end_irq_pulse    ( fe_irq_pulse_dcmi     ),
+    .dout_vld               ( dw_out_vld_dcmi       ), // to dma
+    .dout                   ( dw_out                )
 );
 // dcmi_dma
 dcmi_dma u_dcmi_dma (
     .rstn                   ( rstn                  ),
-    .clk                    ( clk                   ),
-    .dcmi_start             ( dcmi_start            ),
-    .dcmi_vld               ( dcmi_ctrl_vld         ),
-    .dcmi_data              ( dcmi_ctrl_dout        ),
+    .clk                    ( hclk                  ),
+    .block_en               ( block_en_hclk         ),
+    .man_mode               ( man_mode              ),
+    .mcu_rd_dr              ( mcu_rd_dr             ),
+    .capture_start          ( capture_start         ),
+    .dcmi_dw_vld            ( dw_out_vld_hclk       ),
+    .dcmi_dw_out            ( dw_out                ),
     .dma_saddr              ( dma_saddr             ),
     .dma_len                ( dma_len               ),
-    .ovfl_err               ( ovfl_err              ),
+    .ovfl_irq_pulse         ( ovfl_irq_pulse_hclk   ),
     .ppbuf_empty            ( ppbuf_empty           ),
     .ppbuf_valid            ( ppbuf_valid           ),
     .ram_wr_req             ( ram_wr_req            ),
     .ram_wr_ack             ( ram_wr_ack            ),
-    .ram_waddr              ( ram_waddr             ),
+    .ram_waddr              ( ram_waddr[17:0]       ),
     .ram_wdata              ( ram_wdata             )
+);
+// dcmi_reg
+dcmi_reg u_dcmi_reg (
+    .rstn                   ( rstn                  ),
+    .hclk                   ( hclk                  ),
+    .frame_end              ( frame_end_hclk        ),
+    .ahb_bus_sel            ( ahb_bus_sel           ),
+    .ahb_bus_wr             ( ahb_bus_wr            ),
+    .ahb_bus_rd             ( ahb_bus_rd            ),
+    .ahb_bus_addr           ( ahb_bus_addr          ),
+    .ahb_bus_bsel           ( ahb_bus_bsel          ),
+    .ahb_bus_wdata          ( ahb_bus_wdata         ),
+    .ahb_bus_rdata          ( ahb_bus_rdata         ),
+    .block_en               ( block_en              ),
+    .capture_en             ( capture_en            ),
+    .capture_start          ( capture_start         ),
+    .man_mode               ( man_mode              ),
+    .mcu_rd_dr              ( mcu_rd_dr             ),
+    .snapshot_mode          ( snapshot_mode         ),
+    .crop_en                ( crop_en               ),
+    .jpeg_en                ( jpeg_en               ),
+    .embd_sync_en           ( embd_sync_en          ),
+    .pclk_polarity          ( pclk_polarity         ),
+    .hsync_polarity         ( hsync_polarity        ),
+    .vsync_polarity         ( vsync_polarity        ),
+    .data_bus_width         ( data_bus_width        ),
+    .frame_sel_mode         ( frame_sel_mode        ),
+    .byte_sel_mode          ( byte_sel_mode         ),
+    .line_sel_mode          ( line_sel_mode         ),
+    .byte_sel_start         ( byte_sel_start        ),
+    .line_sel_start         ( line_sel_start        ),
+    .fec                    ( fec                   ),
+    .lec                    ( lec                   ),
+    .lsc                    ( lsc                   ),
+    .fsc                    ( fsc                   ),
+    .feu                    ( feu                   ),
+    .leu                    ( leu                   ),
+    .lsu                    ( lsu                   ),
+    .fsu                    ( fsu                   ),
+    .line_crop_start        ( line_crop_start       ),
+    .pixel_crop_start       ( pixel_crop_start      ),
+    .line_crop_size         ( line_crop_size        ),
+    .pixel_crop_size        ( pixel_crop_size       ),
+    .dma_saddr              ( dma_saddr             ), // dma
+    .dma_len                ( dma_len               ),
+    .dcmi_ris               ( dcmi_ris              ), // irq
+    .dcmi_ier               ( dcmi_ier              ),
+    .dcmi_mis               ( dcmi_mis              ),
+    .dcmi_icr               ( dcmi_icr              ),
+    .dcmi_dr                ( ram_wdata             ), // DCMI_DR
+    .dcmi_hsync             ( dcmi_hsync            ), // DCMI_SR
+    .dcmi_vsync             ( dcmi_vsync            ),
+    .dcmi_pclk              ( dcmi_pclk             ),
+    .ppbuf_valid            ( ppbuf_valid           ),
+    .ppbuf_empty            ( ppbuf_empty           )
 );
 // line_irq
 dcmi_psync u_psync_line (
@@ -203,7 +241,7 @@ dcmi_psync u_psync_line (
     .sclk                   ( hclk                  ),
     .sin                    ( line_irq_pulse_dcmi   ),
     .drstn                  ( rstn_dcmi             ),
-    .dclk                   ( dcmi_pclk             ),
+    .dclk                   ( pclk                  ),
     .dout                   ( line_irq_pulse_hclk   )
 );
 // fs_irq
@@ -212,7 +250,7 @@ dcmi_psync u_psync_fs (
     .sclk                   ( hclk                  ),
     .sin                    ( fs_irq_pulse_dcmi     ),
     .drstn                  ( rstn_dcmi             ),
-    .dclk                   ( dcmi_pclk             ),
+    .dclk                   ( pclk                  ),
     .dout                   ( fs_irq_pulse_hclk     )
 );
 // err_irq
@@ -221,7 +259,7 @@ dcmi_psync u_psync_err (
     .sclk                   ( hclk                  ),
     .sin                    ( err_irq_pulse_dcmi    ),
     .drstn                  ( rstn_dcmi             ),
-    .dclk                   ( dcmi_pclk             ),
+    .dclk                   ( pclk                  ),
     .dout                   ( err_irq_pulse_hclk    )
 );
 // fe_irq
@@ -230,8 +268,33 @@ dcmi_psync u_psync_fe (
     .sclk                   ( hclk                  ),
     .sin                    ( fe_irq_pulse_dcmi     ),
     .drstn                  ( rstn_dcmi             ),
-    .dclk                   ( dcmi_pclk             ),
+    .dclk                   ( pclk                  ),
     .dout                   ( fe_irq_pulse_hclk     )
+);
+assign frame_end_hclk = fe_irq_pulse_hclk;
+// fe_irq
+dcmi_psync u_psync_vld (
+    .srstn                  ( rstn_dcmi             ),
+    .sclk                   ( pclk                  ),
+    .sin                    ( dw_out_vld_dcmi       ),
+    .drstn                  ( rstn                  ),
+    .dclk                   ( hclk                  ),
+    .dout                   ( dw_out_vld_hclk       )
+);
+// irq
+dcmi_irq u_irq (
+    .rstn                   ( rstn                  ),
+    .clk                    ( hclk                  ),
+    .line_irq_pulse         ( line_irq_pulse_hclk   ),
+    .vsync_irq_pulse        ( fs_irq_pulse_hclk     ),
+    .err_irq_pulse          ( err_irq_pulse_hclk    ),
+    .ovfl_irq_pulse         ( ovfl_irq_pulse_hclk   ),
+    .frame_end_irq_pulse    ( fe_irq_pulse_hclk     ),
+    .dcmi_ris               ( dcmi_ris              ),
+    .dcmi_ier               ( dcmi_ier              ),
+    .dcmi_mis               ( dcmi_mis              ),
+    .dcmi_icr               ( dcmi_icr              ),
+    .dcmi_irq               ( dcmi_irq              )
 );
 
 endmodule
