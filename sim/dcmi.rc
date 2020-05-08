@@ -2,7 +2,7 @@ Magic 271485
 Revision Verdi3_L-2016.06-1
 
 ; Window Layout <x> <y> <width> <height> <signalwidth> <valuewidth>
-viewPort 0 28 1920 372 205 65
+viewPort 0 28 1920 406 205 65
 
 ; File list:
 ; openDirFile [-d delimiter] [-s time_offset] [-rf auto_bus_rule_file] path_name file_name
@@ -16,7 +16,7 @@ signalSpacing 5
 
 ; windowTimeUnit is used for zoom, cursor & marker
 ; waveform viewport range
-zoom 0.000000 106212636.260000
+zoom 0.000000 11800542.069558
 cursor 0.000000
 marker 0.000000
 
@@ -25,7 +25,7 @@ marker 0.000000
 ; visible top row signal index
 top 0
 ; marker line index
-markerPos 9
+markerPos 12
 
 ; event list
 ; addEvent event_name event_expression
@@ -55,8 +55,10 @@ addSignal -h 15 -holdScope dcmi_hsync
 addSignal -h 15 -UNSIGNED -HEX -holdScope dcmi_data[13:0]
 addSignal -h 15 -holdScope ftrig
 addGroup "G2"
-addSignal -h 15 /tb_top/u_dcmi/pclk
-addSignal -h 15 -UNSIGNED -HEX -holdScope curr_st[3:0]
+addSignal -h 15 /tb_top/u_dcmi_top/ram_wr_req
+addSignal -h 15 -holdScope ram_wr_ack
+addSignal -h 15 -UNSIGNED -HEX -holdScope ram_waddr[19:0]
+addSignal -h 15 -UNSIGNED -HEX -holdScope ram_wdata[31:0]
 addGroup "G3"
 
 ; getSignalForm Scope Hierarchy Status

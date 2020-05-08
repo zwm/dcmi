@@ -3,10 +3,10 @@ module tb_top();
 // macro
 `include "tb_define.v"
 // port
-reg rstn, hclk; wire dcmi_irq;
+reg rstn, hclk, ram_clk; wire dcmi_irq;
 reg ahb_bus_sel; reg ahb_bus_wr; reg ahb_bus_rd; reg [ 3:0] ahb_bus_addr;
 reg [ 3:0] ahb_bus_bsel; reg [31:0] ahb_bus_wdata; wire [31:0] ahb_bus_rdata;
-wire ram_wr_req; reg ram_wr_ack; wire [23:0] ram_waddr; wire [31:0] ram_wdata;
+wire ram_wr_req; reg ram_wr_ack; wire [19:0] ram_waddr; wire [31:0] ram_wdata;
 // dcmi
 reg dcmi_mclk; wire dcmi_pclk, dcmi_vsync, dcmi_hsync; wire [13:0] dcmi_data; reg dcmi_pwdn;
 // reg
@@ -59,6 +59,7 @@ end
 dcmi_top u_dcmi_top (
     .rstn               ( rstn              ),
     .hclk               ( hclk              ),
+    .ram_clk            ( ram_clk           ),
     .dcmi_pclk          ( dcmi_pclk         ),
     .dcmi_vsync         ( dcmi_vsync        ),
     .dcmi_hsync         ( dcmi_hsync        ),
@@ -196,9 +197,11 @@ endtask
 initial begin
     dcmi_mclk = 0;
     hclk = 0;
+    ram_clk = 0;
     fork
         forever #(100/2) dcmi_mclk = ~dcmi_mclk;
         forever #(6/2) hclk = ~hclk;
+        forever #(4/2) ram_clk = ~ram_clk;
     join
 end
 

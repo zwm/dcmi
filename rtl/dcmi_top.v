@@ -6,6 +6,7 @@ module dcmi_top (
     //-----------------------------------------------------------------------
     input                       rstn,
     input                       hclk,
+    input                       ram_clk,
     //-----------------------------------------------------------------------
     //  DCMI Interface
     //-----------------------------------------------------------------------
@@ -32,7 +33,7 @@ module dcmi_top (
     // ram
     output                      ram_wr_req,
     input                       ram_wr_ack,
-    output          [23:0]      ram_waddr,
+    output          [19:0]      ram_waddr,
     output          [31:0]      ram_wdata
 );
 
@@ -41,7 +42,7 @@ module dcmi_top (
 //---------------------------------------------------------------------------
 // misc
 wire rstn_dcmi; reg [1:0] rstn_pclk_dly;
-wire dw_out_vld_dcmi, dw_out_vld_hclk; wire [31:0] dw_out; // data word, if no handshake, data change while sync will not be observed!!!
+wire dw_out_vld_dcmi, dw_out_vld_ram_clk; wire [31:0] dw_out; // data word, if no handshake, data change while sync will not be observed!!!
 wire frame_end_hclk;
 wire [4:0] dcmi_ris, dcmi_ier, dcmi_mis, dcmi_icr;
 wire ppbuf_valid, ppbuf_empty;
@@ -81,17 +82,18 @@ wire [13:0]     pixel_crop_start;
 wire [13:0]     line_crop_size;
 wire [13:0]     pixel_crop_size;
 // DCMI_DMA
-wire [17:0]     dma_saddr; // 18-bit, 256KB
+wire [17:0]     dma_saddr; // 18-bit, 256K*4B = 1MB
 wire [17:0]     dma_len; // 18-bit, 256KB
 // irq
 wire line_irq_pulse_dcmi, line_irq_pulse_hclk;
 wire fs_irq_pulse_dcmi, fs_irq_pulse_hclk;
 wire err_irq_pulse_dcmi, err_irq_pulse_hclk;
 wire fe_irq_pulse_dcmi, fe_irq_pulse_hclk;
-wire ovfl_irq_pulse_hclk;
+wire ovfl_irq_pulse_hclk, ovfl_irq_pulse_ram_clk;
 // en
 wire capture_en_hclk, capture_en_dcmi;
-wire block_en_hclk, block_en_dcmi;
+wire block_en_hclk, block_en_dcmi, block_en_ram_clk;
+wire capture_start_ram_clk;
 // dcmi_pclk polarity processed here!!! tbd!!!
 wire pclk;
 assign pclk = dcmi_pclk ^ pclk_polarity;
@@ -104,21 +106,9 @@ always @(posedge pclk or negedge rstn)
 assign rstn_dcmi = rstn_pclk_dly[1];
 // block_en
 assign block_en_hclk = block_en;
-dcmi_sync u_sync_block_en (
-    .rstn                   ( rstn_dcmi             ),
-    .clk                    ( pclk                  ),
-    .din                    ( block_en_hclk         ),
-    .dout                   ( block_en_dcmi         )
-);
-// capture_en
-assign capture_en_hclk = capture_en;
-dcmi_sync u_sync_capture_en (
-    .rstn                   ( rstn_dcmi             ),
-    .clk                    ( pclk                  ),
-    .din                    ( capture_en_hclk       ),
-    .dout                   ( capture_en_dcmi       )
-);
-
+//---------------------------------------------------------------------------
+// CLK DOMAIN: PCLK
+//---------------------------------------------------------------------------
 // dcmi_ctrl
 dcmi_ctrl u_dcmi_ctrl (
     .rstn                   ( rstn_dcmi             ), // need sync
@@ -160,31 +150,92 @@ dcmi_ctrl u_dcmi_ctrl (
     .dout_vld               ( dw_out_vld_dcmi       ), // to dma
     .dout                   ( dw_out                )
 );
+// dw_out_vld_ram_clk
+dcmi_psync u_psync_vld (
+    .srstn                  ( rstn_dcmi             ),
+    .sclk                   ( pclk                  ),
+    .sin                    ( dw_out_vld_dcmi       ),
+    .drstn                  ( rstn                  ),
+    .dclk                   ( ram_clk               ),
+    .dout                   ( dw_out_vld_ram_clk    )
+);
+// line_irq
+dcmi_psync u_psync_line (
+    .srstn                  ( rstn                  ),
+    .sclk                   ( hclk                  ),
+    .sin                    ( line_irq_pulse_dcmi   ),
+    .drstn                  ( rstn_dcmi             ),
+    .dclk                   ( pclk                  ),
+    .dout                   ( line_irq_pulse_hclk   )
+);
+// fs_irq
+dcmi_psync u_psync_fs (
+    .srstn                  ( rstn                  ),
+    .sclk                   ( hclk                  ),
+    .sin                    ( fs_irq_pulse_dcmi     ),
+    .drstn                  ( rstn_dcmi             ),
+    .dclk                   ( pclk                  ),
+    .dout                   ( fs_irq_pulse_hclk     )
+);
+// err_irq
+dcmi_psync u_psync_err (
+    .srstn                  ( rstn                  ),
+    .sclk                   ( hclk                  ),
+    .sin                    ( err_irq_pulse_dcmi    ),
+    .drstn                  ( rstn_dcmi             ),
+    .dclk                   ( pclk                  ),
+    .dout                   ( err_irq_pulse_hclk    )
+);
+// fe_irq
+dcmi_psync u_psync_fe (
+    .srstn                  ( rstn                  ),
+    .sclk                   ( hclk                  ),
+    .sin                    ( fe_irq_pulse_dcmi     ),
+    .drstn                  ( rstn_dcmi             ),
+    .dclk                   ( pclk                  ),
+    .dout                   ( fe_irq_pulse_hclk     )
+);
+//---------------------------------------------------------------------------
+// CLK DOMAIN: RAM
+//---------------------------------------------------------------------------
 // dcmi_dma
 dcmi_dma u_dcmi_dma (
     .rstn                   ( rstn                  ),
-    .clk                    ( hclk                  ),
-    .block_en               ( block_en_hclk         ),
+    .clk                    ( ram_clk               ),
+    .block_en               ( block_en_ram_clk      ),
     .man_mode               ( man_mode              ),
     .mcu_rd_dr              ( mcu_rd_dr             ),
-    .capture_start          ( capture_start         ),
-    .dcmi_dw_vld            ( dw_out_vld_hclk       ),
+    .capture_start          ( capture_start_ram_clk ),
+    .dcmi_dw_vld            ( dw_out_vld_ram_clk    ),
     .dcmi_dw_out            ( dw_out                ),
     .dma_saddr              ( dma_saddr             ),
     .dma_len                ( dma_len               ),
-    .ovfl_irq_pulse         ( ovfl_irq_pulse_hclk   ),
+    .ovfl_irq_pulse         ( ovfl_irq_pulse_ram_clk ),
     .ppbuf_empty            ( ppbuf_empty           ),
     .ppbuf_valid            ( ppbuf_valid           ),
     .ram_wr_req             ( ram_wr_req            ),
     .ram_wr_ack             ( ram_wr_ack            ),
-    .ram_waddr              ( ram_waddr[17:0]       ),
+    .ram_waddr              ( ram_waddr[19:2]       ),
     .ram_wdata              ( ram_wdata             )
 );
+assign ram_waddr[1:0] = 2'b00;
+// ovfl irq pulse
+dcmi_psync u_psync_ovfl_irq (
+    .srstn                  ( rstn                  ),
+    .sclk                   ( ram_clk               ),
+    .sin                    ( ovfl_irq_pulse_ram_clk ),
+    .drstn                  ( rstn                  ),
+    .dclk                   ( hclk                  ),
+    .dout                   ( ovfl_irq_pulse_hclk   )
+);
+//---------------------------------------------------------------------------
+// CLK DOMAIN: HCLK
+//---------------------------------------------------------------------------
 // dcmi_reg
 dcmi_reg u_dcmi_reg (
     .rstn                   ( rstn                  ),
     .hclk                   ( hclk                  ),
-    .frame_end              ( frame_end_hclk        ),
+    .frame_end              ( fe_irq_pulse_hclk     ),
     .ahb_bus_sel            ( ahb_bus_sel           ),
     .ahb_bus_wr             ( ahb_bus_wr            ),
     .ahb_bus_rd             ( ahb_bus_rd            ),
@@ -235,52 +286,6 @@ dcmi_reg u_dcmi_reg (
     .ppbuf_valid            ( ppbuf_valid           ),
     .ppbuf_empty            ( ppbuf_empty           )
 );
-// line_irq
-dcmi_psync u_psync_line (
-    .srstn                  ( rstn                  ),
-    .sclk                   ( hclk                  ),
-    .sin                    ( line_irq_pulse_dcmi   ),
-    .drstn                  ( rstn_dcmi             ),
-    .dclk                   ( pclk                  ),
-    .dout                   ( line_irq_pulse_hclk   )
-);
-// fs_irq
-dcmi_psync u_psync_fs (
-    .srstn                  ( rstn                  ),
-    .sclk                   ( hclk                  ),
-    .sin                    ( fs_irq_pulse_dcmi     ),
-    .drstn                  ( rstn_dcmi             ),
-    .dclk                   ( pclk                  ),
-    .dout                   ( fs_irq_pulse_hclk     )
-);
-// err_irq
-dcmi_psync u_psync_err (
-    .srstn                  ( rstn                  ),
-    .sclk                   ( hclk                  ),
-    .sin                    ( err_irq_pulse_dcmi    ),
-    .drstn                  ( rstn_dcmi             ),
-    .dclk                   ( pclk                  ),
-    .dout                   ( err_irq_pulse_hclk    )
-);
-// fe_irq
-dcmi_psync u_psync_fe (
-    .srstn                  ( rstn                  ),
-    .sclk                   ( hclk                  ),
-    .sin                    ( fe_irq_pulse_dcmi     ),
-    .drstn                  ( rstn_dcmi             ),
-    .dclk                   ( pclk                  ),
-    .dout                   ( fe_irq_pulse_hclk     )
-);
-assign frame_end_hclk = fe_irq_pulse_hclk;
-// fe_irq
-dcmi_psync u_psync_vld (
-    .srstn                  ( rstn_dcmi             ),
-    .sclk                   ( pclk                  ),
-    .sin                    ( dw_out_vld_dcmi       ),
-    .drstn                  ( rstn                  ),
-    .dclk                   ( hclk                  ),
-    .dout                   ( dw_out_vld_hclk       )
-);
 // irq
 dcmi_irq u_irq (
     .rstn                   ( rstn                  ),
@@ -295,6 +300,35 @@ dcmi_irq u_irq (
     .dcmi_mis               ( dcmi_mis              ),
     .dcmi_icr               ( dcmi_icr              ),
     .dcmi_irq               ( dcmi_irq              )
+);
+dcmi_sync u_sync_block_en1 (
+    .rstn                   ( rstn_dcmi             ),
+    .clk                    ( pclk                  ),
+    .din                    ( block_en_hclk         ),
+    .dout                   ( block_en_dcmi         )
+);
+dcmi_sync u_sync_block_en2 (
+    .rstn                   ( rstn                  ),
+    .clk                    ( ram_clk               ),
+    .din                    ( block_en_hclk         ),
+    .dout                   ( block_en_ram_clk      )
+);
+// capture_start_ram_clk
+dcmi_psync u_psync_capture_start (
+    .srstn                  ( rstn                  ),
+    .sclk                   ( hclk                  ),
+    .sin                    ( capture_start         ),
+    .drstn                  ( rstn_dcmi             ),
+    .dclk                   ( ram_clk               ),
+    .dout                   ( capture_start_ram_clk )
+);
+// capture_en
+assign capture_en_hclk = capture_en;
+dcmi_sync u_sync_capture_en (
+    .rstn                   ( rstn_dcmi             ),
+    .clk                    ( pclk                  ),
+    .din                    ( capture_en_hclk       ),
+    .dout                   ( capture_en_dcmi       )
 );
 
 endmodule
